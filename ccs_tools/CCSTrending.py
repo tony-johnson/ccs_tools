@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytz
 import requests
-from IPython.core.display import Javascript, display
+from IPython.core.display import Javascript, display, HTML
 
 DEFAULT_REST_URL = "https://lsst-camera-dev.slac.stanford.edu/CCSWebTrending/rest/"
 DEFAULT_SITE = "ir2"
@@ -200,14 +200,20 @@ class DeltaTimePeriod(TimePeriod):
 
 class CCSTrending:
     """A simple jupyter interface to CCS trending"""
+    module_loaded = False
 
     def __init__(self, title=None, data=None, range=datetime.timedelta(days=1), site=DEFAULT_SITE, restURL=DEFAULT_REST_URL):
         self.plots = []
         self.title = title
         self.range = range
         self.restURL = restURL+site
+        self.useUTC = False
         self.cm = ChannelMap(site=site, restURL=restURL)
         self.dr = ChannelDataReader(site=site, restURL=restURL)
+
+        if not CCSTrending.module_loaded:
+            self.load_module()
+            CCSTrending.module_loaded = True
 
         if data:
             if isinstance(data, str):
@@ -257,21 +263,19 @@ class CCSTrending:
             keys.append(key)
         return self.dr.read_data(ids, keys, self.__range)
 
-    def plot(self):
-        code = Template('''
+    def load_module(self):
+        code = '''
             (function(element) {
-                new Promise(function(resolve, reject) {
-                    var script = document.createElement("script");
-                    script.onload = resolve;
-                    script.onerror = reject;
-                    script.src = "https://lsst-camera-dev.slac.stanford.edu/CCSWebTrending/ccs-trending.js";
-                    script.type = "module";
-                    document.head.appendChild(script);
-                }).then(() => {
-		            $$(`<div><trending-controller></trending-controller><trending-plot  style="width:100%;height:300px" title="${title}" restURL="${restURL}" range="${range}">${data}</trending-plot></div>`).appendTo(element);
-                });
+                var script = document.createElement("script");
+                script.src = "https://lsst-camera-dev.slac.stanford.edu/CCSWebTrending/ccs-trending.js";
+                script.type = "module";
+                document.head.appendChild(script);
             })(element);
-           ''')
+           '''
+
+        display(Javascript(code))
+
+    def plot(self):
 
         def output(plots):
             result = ""
@@ -279,6 +283,14 @@ class CCSTrending:
                 result += '<trending-data key="%d">%s</trending-data>' % (id, key)
             return result
 
-        js = Javascript(code.substitute(title=self.title, data=output(
-            self.plots), range=self.range.as_ccs_string(), restURL=self.restURL))
-        display(js)
+        html = Template('''
+           <div>
+                <trending-controller range="${range}" ${useUTC} >
+                </trending-controller>
+                <trending-plot style="width:100%;height:300px" title="${title}" restURL="${restURL}">
+                    ${data}
+                </trending-plot>
+            </div>
+        ''')
+        return HTML(html.substitute(title=self.title, data=output(self.plots), range=self.range.as_ccs_string(), 
+                    restURL=self.restURL, useUTC="useUTC" if self.useUTC else ""))
